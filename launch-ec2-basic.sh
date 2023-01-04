@@ -21,6 +21,12 @@ if [ "$OPTION" = "1" ]; then
 elif [ "$OPTION" = "2" ]; then
     echo 'Enter instance name of your choice:'
     read DOMAIN_NAME
+    DOMAIN_NAME=$(echo "$DOMAIN_NAME" | sed 's/[^a-zA-Z0-9]//g')
+
+    if [ -z "$DOMAIN_NAME" ];then
+        echo "Instance name can not be empty.\nQuiting."
+        exit
+    fi
     DEFAULT_NAME=$(echo "$DOMAIN_NAME" | sed 's/[^a-zA-Z0-9]//g')
     DOMAIN_DIR=$DEFAULT_NAME"D"
 else
@@ -45,6 +51,7 @@ SUBNET_CIDR_2=10.0.2.0/24
 SUBNET_NAME_1=$DEFAULT_NAME'SubAPSouth1a'
 SUBNET_NAME_2=$DEFAULT_NAME'SubAPSouth1b'
 
+IGW_ID=''
 IGW_NAME=$DEFAULT_NAME'IGW'
 ROUTE_TABLE_NAME=$DEFAULT_NAME'RouteTbl'
 ROUTE_NAME=$DEFAULT_NAME'RoutePub'
@@ -57,6 +64,40 @@ PORT_80_NAME=$DEFAULT_NAME"HTTP"
 PORT_443_NAME=$DEFAULT_NAME"HTTPS"
 
 AWS_PROFILE=aws_root_spw_bytes
+
+
+exists_or_create_igw()
+{
+    echo "Checking IGW exists..."
+    EXISTS=$(aws ec2 describe-internet-gateways \
+        --filters "Name=tag:Name,Values=$IGW_NAME" \
+        --query 'InternetGateways[*].InternetGatewayId' \
+        --output text)
+
+    if [ -z "$EXISTS" ]; then
+        echo "Need to create IGW"
+        # Create the IGW
+        IGW_ID=$(aws ec2 create-internet-gateway \
+            --region $REGION \
+            --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=$IGW_NAME}]" \
+            --query 'InternetGateway.InternetGatewayId' \
+            --output text)
+        if [ -z "$IGW_ID" ]; then
+            echo "IGW not created.\nCan not proceed further."
+            exit
+        fi
+        echo "IGW created. ID: $IGW_ID\nAttaching it to VPC..."
+        aws ec2 attach-internet-gateway \
+          --internet-gateway-id $IGW_ID \
+          --vpc-id $VPC_ID
+        echo "IGW attached to VPC\n"
+
+    else
+        echo "IGW exists. ID: $EXISTS"
+        IGW_ID=$EXISTS
+    fi
+
+}
 
 echo "--------------------------------------"
 echo "Welcome to EC2 Instance launch script"
@@ -99,34 +140,8 @@ if [ -z "$VPC_ID" ]; then
     echo  $VPC_ID >> log.txt
     echo "VPC created. ID: $VPC_ID"
 
-    echo "Checking IGW exists..."
-    EXISTS=$(aws ec2 describe-internet-gateways \
-        --filters "Name=tag:Name,Values=MyIGW" \
-        --query 'InternetGateways[*].InternetGatewayId' \
-        --output text)
-
-    if [ -z "$EXISTS" ]; then
-        echo "Need to create IGW"
-        # Create the IGW
-        IGW_ID=$(aws ec2 create-internet-gateway \
-            --region $REGION \
-            --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=$IGW_NAME}]" \
-            --query 'InternetGateway.InternetGatewayId' \
-            --output text)
-        if [ -z "$IGW_ID" ]; then
-            echo "IGW not created.\nCan not proceed further."
-            exit
-        fi
-        echo "IGW created. ID: $IGW_ID\nAttaching it to VPC..."
-        aws ec2 attach-internet-gateway \
-          --internet-gateway-id $IGW_ID \
-          --vpc-id $VPC_ID
-        echo "IGW attached to VPC\n"
-
-    else
-        echo "IGW exists. ID: $EXISTS"
-        IGW_ID=$EXISTS
-    fi
+    # Exists or create IGW
+    exists_or_create_igw
 
     # Set the CIDR blocks for the subnets
     echo "Setting up Subnets for this VPC"
@@ -178,16 +193,20 @@ if [ -z "$VPC_ID" ]; then
     echo "Public Route attached to $SUBNET_NAME_1\n"
 
 else
-  echo "VPC with name $VPC_NAME found with ID $VPC_ID"
-  # SUBNET_ID_1=$(aws ec2 describe-subnets --region $REGION --filters "Name=vpc-id,Values=$VPC_ID" --output text)
-  SUBNET_ID_1=$(aws ec2 describe-subnets --region $REGION --filters "Name=vpc-id,Values=$VPC_ID" \
-    --output text | sed 's/\s\+/ /g' | grep -A 2 "Name $SUBNET_NAME_1" | rev | cut -d' ' -f2 | rev | tail -2 | head -1)
-  echo "Using Subnet ID: $SUBNET_ID_1"
+    echo "VPC with name $VPC_NAME found with ID $VPC_ID"
 
-  if [ -z "$SUBNET_ID_1" ]; then
-        echo "Subnet ID not found.\nCan not proceed further."
-        exit
-  fi
+    # Exists or create IGW
+    exists_or_create_igw
+
+    # SUBNET_ID_1=$(aws ec2 describe-subnets --region $REGION --filters "Name=vpc-id,Values=$VPC_ID" --output text)
+    SUBNET_ID_1=$(aws ec2 describe-subnets --region $REGION --filters "Name=vpc-id,Values=$VPC_ID" \
+        --output text | sed 's/\s\+/ /g' | grep -A 2 "Name $SUBNET_NAME_1" | rev | cut -d' ' -f2 | rev | tail -2 | head -1)
+    echo "Using Subnet ID: $SUBNET_ID_1"
+
+    if [ -z "$SUBNET_ID_1" ]; then
+            echo "Subnet ID not found.\nCan not proceed further."
+            exit
+    fi
 
 fi
 
@@ -325,32 +344,6 @@ echo "Wait for the instance to be running & Both status checks are Ok"
 aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"
 
 echo "Instance ready"
-
-# Install PHP 7.2 on the EC2 instance
-# echo ""
-# echo "Setting up Apache and Installing PHP7.2"
-# STATE=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].State.Name' --output text)
-
-# if [ "$STATE" = "running" ]; then
-#     echo "Instance $INSTANCE_ID is running"
-#     RUN_COMMANDS=$(aws ssm describe-instance-information \
-# 	--region $REGION \
-# 	--instance-information-filter-list key=InstanceIds,valueSet=$INSTANCE_ID \
-# 	--query "InstanceInformationList" \
-#     --output text)
-
-#     echo $RUN_COMMANDS
-
-#     RUN_COMMANDS=$(aws ssm send-command \
-#         --instance-ids $INSTANCE_ID \
-#         --region $REGION \
-#         --document-name "AWS-RunShellScript" \
-#         --parameters 'commands=["sudo apt-get update", "sudo apt-get install -y software-properties-common", "sudo add-apt-repository -y ppa:ondrej/php", "sudo apt-get update", "sudo apt-get install -y apache2", "sudo apt-get install -y php7.2 php7.2-curl php7.2-json php7.2-cgi php7.2-xsl php7.2-mbstring php7.2-fpm php7.2-common php7.2-mysql libapache2-mod-php7.2 php7.2-gd php7.2-mbstring php7.2-xml", "sudo a2enmod headers rewrite", "sudo service apache2 restart"]' \
-#         --output text)
-#     echo "Setup done."
-# else
-#     echo "Instance $INSTANCE_ID is not running, can not setup apache & install PHP7.2"
-# fi
 
 echo "\nNaming Volumes attached to this instance\n"
 # Get the list of volumes

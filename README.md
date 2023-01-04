@@ -22,7 +22,11 @@ By launching you get following configuration instance:
 
 
 ## Prerequisite
-`aws cli` must be working in your system. If not, you can take help from https://aws.amazon.com/cli/
+`aws cli` must be working in your system with having version at least `2.9+`. If not installed, you can take help from https://aws.amazon.com/cli/
+
+Note:
+**aws cli user** must have FULL permissions for `AmazonEC2FullAccess`,`AmazonVPCFullAccess`,`AmazonKeyspacesFullAccess` and `IAMUserSSHKeys`
+
 ## Installation
 
 Just download this file and run following command:
@@ -39,11 +43,7 @@ Now run script
 sudo sh launch-ec2-instance.sh
 
 ```
-or
-```bash
-sudo ./launch-ec2-instance.sh
 
-```
 
 ## Sample Output
 
