@@ -127,3 +127,7 @@ For support, please drop an email at ghoreladeep@gmail.com
 - [@pawanyd](https://www.github.com/pawanyd)
 
 
+
+## License
+
+[MIT](https://choosealicense.com/licenses/mit/)
